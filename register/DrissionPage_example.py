@@ -1358,7 +1358,7 @@ def main():
                 restart_browser()
 
             if args.count == 0 or current_round < args.count:
-                time.sleep(2)
+                time.sleep(0.5)
 
     finally:
         stop_browser()

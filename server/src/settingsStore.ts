@@ -12,14 +12,21 @@ const CONFIG_PATH = join(DATA_DIR, 'config.json');
 
 let cache: AppSettings | null = null;
 
-function applyEnvOverrides(s: AppSettings): AppSettings {
+function applyEnvOverrides(s: AppSettings, source: Partial<AppSettings>): AppSettings {
   // Docker 友好：允许通过环境变量覆盖关键字段（首次启动空白容器时也能直接跑）
   const env = process.env;
+  const envRunCount = env.RUN_COUNT ? Number(env.RUN_COUNT) : undefined;
+  const useEnvRunCount =
+    source.runCount === undefined &&
+    Number.isInteger(envRunCount) &&
+    (envRunCount as number) >= 1 &&
+    (envRunCount as number) <= 50;
+
   return {
     ...s,
     pythonPath: env.PYTHON_PATH || s.pythonPath || (process.platform === 'win32' ? 'python' : '/usr/local/bin/python3'),
     registerDir: env.REGISTER_DIR || s.registerDir || '',
-    runCount: env.RUN_COUNT ? Number(env.RUN_COUNT) : s.runCount,
+    runCount: useEnvRunCount ? (envRunCount as number) : s.runCount,
     proxy: env.HTTP_PROXY || s.proxy,
     browserProxy: env.BROWSER_PROXY || s.browserProxy,
     browserPath: env.BROWSER_PATH || s.browserPath,
@@ -39,7 +46,7 @@ function merge(partial: unknown): AppSettings {
     ...p,
     mail: { ...DEFAULT_SETTINGS.mail, ...(p.mail ?? {}) }
   };
-  return applyEnvOverrides(merged);
+  return applyEnvOverrides(merged, p);
 }
 
 export async function loadSettings(): Promise<AppSettings> {

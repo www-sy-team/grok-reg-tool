@@ -1,6 +1,6 @@
 {
   "name": "grok-reg-tool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "可自部署的 Grok 注册机 Web 控制台，支持 Docker、DrissionPage 自动化、邮件后端配置和本地账号号池管理。",
   "keywords": [
     "grok",

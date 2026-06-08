@@ -196,6 +196,11 @@ def wait_for_verification_code(jwt: str, timeout: int = 120) -> Optional[str]:
     start = time.time()
     seen_ids = set()
 
+    try:
+        poll_interval = max(0.5, float(_conf.get("mail_poll_interval", 1)))
+    except (TypeError, ValueError):
+        poll_interval = 1
+
     while time.time() - start < timeout:
         messages = fetch_emails(jwt)
         for msg in messages:
@@ -234,7 +239,7 @@ def wait_for_verification_code(jwt: str, timeout: int = 120) -> Optional[str]:
             if code:
                 print(f"[*] 提取到验证码: {code}")
                 return code
-        time.sleep(3)
+        time.sleep(poll_interval)
     return None
 
 

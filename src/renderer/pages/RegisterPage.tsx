@@ -163,7 +163,7 @@ function RuntimeSettingsPanel() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="field-label">run count</div>
-                <div className="mt-1 text-xs text-muted-foreground">单次启动执行轮数，范围 1 到 50。</div>
+                <div className="mt-1 text-xs text-muted-foreground">单次启动执行轮数，范围 1 到 50，保存后下次启动生效。</div>
               </div>
               <div className="shell-chip">{draft.runCount}</div>
             </div>

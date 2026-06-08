@@ -23,5 +23,6 @@ services:
       HTTP_PROXY: "${HTTP_PROXY:-}"
       BROWSER_PROXY: "${BROWSER_PROXY:-}"
       BROWSER_PATH: "/usr/bin/chromium"
+      COOKIE_SECURE: "${COOKIE_SECURE:-}"
     volumes:
       - ./data:/data

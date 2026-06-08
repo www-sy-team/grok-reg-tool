@@ -130,7 +130,7 @@ function readSessionFromCookie(cookie: string | undefined): SessionRecord | null
 }
 
 function buildCookie(token: string, expiresAt: number) {
-  const secure = process.env.COOKIE_SECURE === '1' || process.env.NODE_ENV === 'production';
+  const secure = process.env.COOKIE_SECURE === '1';
   const pieces = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     'Path=/',
@@ -143,7 +143,7 @@ function buildCookie(token: string, expiresAt: number) {
 }
 
 function clearCookie() {
-  const secure = process.env.COOKIE_SECURE === '1' || process.env.NODE_ENV === 'production';
+  const secure = process.env.COOKIE_SECURE === '1';
   const pieces = [
     `${SESSION_COOKIE}=`,
     'Path=/',

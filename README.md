@@ -34,6 +34,7 @@ MAIL_DOMAIN=
 
 HTTP_PROXY=
 BROWSER_PROXY=
+COOKIE_SECURE=
 ```
 
 启动：
@@ -55,6 +56,8 @@ docker logs grok-reg-tool
 ```
 
 首次登录后请修改默认用户名和密码。
+
+直接用 `http://服务器IP:6657` 访问时，`COOKIE_SECURE` 请留空。只有放在 HTTPS 反向代理后面时，才建议设置 `COOKIE_SECURE=1`。
 
 ## 邮件后端配置
 

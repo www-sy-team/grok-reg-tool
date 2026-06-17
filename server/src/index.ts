@@ -10,7 +10,7 @@ import type { AppSettings } from '@shared/settings';
 import type { RunEvent } from '@shared/runEvents';
 import { loadSettings, saveSettings, dataDir } from './settingsStore.js';
 import { registerBot } from './bot/registerBot.js';
-import { listAccounts } from './accountStore.js';
+import { listAccounts, updateAccountSsoChecks } from './accountStore.js';
 import { checkForUpdate, currentVersion } from './updateCheck.js';
 import { fetchEmails, extractVerificationCode, fetchLatestCodeByAddress } from './api/emailApi.js';
 import { checkSso } from './ssoCheck.js';
@@ -160,6 +160,7 @@ app.post('/api/sso/check', async (req: Request, res: Response) => {
     );
     results.push(...settled);
   }
+  await updateAccountSsoChecks(results as Parameters<typeof updateAccountSsoChecks>[0]);
   res.json({ results });
 });
 

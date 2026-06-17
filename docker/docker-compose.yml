@@ -6,8 +6,11 @@ services:
     image: grok-reg-tool:latest
     container_name: grok-reg-tool
     restart: unless-stopped
+    shm_size: 512m
     ports:
       - "${WEB_PORT:-6657}:6657"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: "6657"
       BIND_HOST: "0.0.0.0"
@@ -16,13 +19,19 @@ services:
       PYTHON_PATH: "/usr/local/bin/python3"
       REGISTER_DIR: "/app/register"
       SSO_DIR: "/data/sso"
+      MAILTM: "${MAILTM:-}"
       MAIL_API_BASE: "${MAIL_API_BASE:-}"
       MAIL_ADMIN_AUTH: "${MAIL_ADMIN_AUTH:-}"
+      MAIL_CUSTOM_AUTH: "${MAIL_CUSTOM_AUTH:-}"
       MAIL_DOMAIN: "${MAIL_DOMAIN:-}"
       RUN_COUNT: "${RUN_COUNT:-10}"
       HTTP_PROXY: "${HTTP_PROXY:-}"
+      HTTPS_PROXY: "${HTTP_PROXY:-}"
+      NO_PROXY: "127.0.0.1,localhost,::1,host.docker.internal"
       BROWSER_PROXY: "${BROWSER_PROXY:-}"
       BROWSER_PATH: "/usr/bin/chromium"
+      DELAY_SECS: "${DELAY_SECS:-45}"
       COOKIE_SECURE: "${COOKIE_SECURE:-}"
     volumes:
       - ./data:/data
+      - ../register/config.json:/app/register/config.json

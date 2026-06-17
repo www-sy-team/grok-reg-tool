@@ -56,6 +56,27 @@ export function PoolPage() {
   };
 
   useEffect(() => {
+    setSsoMap((prev) => {
+      const next = new Map(prev);
+      for (const account of accounts) {
+        if (!account.ssoCheckedAt || account.ssoAlive === undefined || next.has(account.id)) continue;
+        next.set(account.id, {
+          id: account.id,
+          alive: account.ssoAlive,
+          status: account.ssoStatus ?? 0,
+          email: account.email,
+          emailConfirmed: account.ssoEmailConfirmed,
+          sessionTierId: account.ssoSessionTierId,
+          createTime: account.ssoCreateTime,
+          checkedAt: account.ssoCheckedAt,
+          error: account.ssoError
+        });
+      }
+      return next;
+    });
+  }, [accounts]);
+
+  useEffect(() => {
     void doReload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);

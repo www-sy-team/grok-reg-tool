@@ -39,6 +39,14 @@ export interface AccountRecord {
   email: string;
   password: string;
   sso: string;
+  /** 最近一次 SSO 验活结果（由 /api/sso/check 写回） */
+  ssoAlive?: boolean;
+  ssoStatus?: number;
+  ssoCheckedAt?: string;
+  ssoEmailConfirmed?: boolean;
+  ssoSessionTierId?: string;
+  ssoCreateTime?: string;
+  ssoError?: string;
   /** ISO 字符串 */
   createdAt: string;
 }

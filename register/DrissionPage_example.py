@@ -12,6 +12,7 @@ if sys.stderr.encoding != 'utf-8':
 from DrissionPage import Chromium, ChromiumOptions
 from DrissionPage.errors import PageDisconnectedError
 import argparse
+import json
 import shutil
 import tempfile
 import datetime
@@ -19,6 +20,7 @@ import logging
 import time
 import secrets
 import platform
+import uuid
 
 from email_register import get_email_and_token, get_oai_code
 
@@ -213,15 +215,21 @@ def refresh_active_page():
 
 
 def open_signup_page():
-    # 每轮开始时打开注册页，并切到“使用邮箱注册”流程。
+    # 每轮开始时打开注册页，并切到"使用邮箱注册"流程。
     global page
     refresh_active_page()
-    try:
-        page.get(SIGNUP_URL)
-    except Exception:
-        refresh_active_page()
-        page = browser.new_tab(SIGNUP_URL)
-    click_email_signup_button()
+    for attempt in range(2):
+        try:
+            page.get(SIGNUP_URL)
+            time.sleep(4)
+            click_email_signup_button()
+            return
+        except Exception as e:
+            print(f"[Debug] open_signup_page 重试 {attempt+1}/2: {e}")
+            refresh_active_page()
+            page = browser.new_tab()
+            time.sleep(1)
+    raise Exception("无法打开注册页")
 
 
 def close_current_page():
@@ -272,11 +280,16 @@ return true;
     raise Exception('未找到“使用邮箱注册”按钮')
 
 
-def fill_email_and_submit(timeout=15):
-    # 复用 `email_register.py` 里的邮箱获取逻辑，保留邮箱与 token 供后续验证码步骤继续使用。
-    email, dev_token = get_email_and_token()
-    if not email or not dev_token:
-        raise Exception("获取邮箱失败")
+def fill_email_and_submit(timeout=15, existing_email=None, existing_password=None):
+    # 当提供了现成邮箱时，直接使用它（Outlook 模式）；否则走原有流程创建临时邮箱。
+    if existing_email:
+        email = existing_email
+        dev_token = None  # Outlook 模式不使用 dev_token
+        print(f"[*] 使用现有邮箱: {email}")
+    else:
+        email, dev_token = get_email_and_token()
+        if not email or not dev_token:
+            raise Exception("获取邮箱失败")
 
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -401,18 +414,25 @@ return true;
 
 
 
-def fill_code_and_submit(email, dev_token, timeout=60):
-    # 复用 `email_register.py` 里的验证码轮询逻辑，等待邮件到达后自动填写 OTP。
-    code = get_oai_code(dev_token, email)
-    if not code:
-        raise Exception("获取验证码失败")
+def fill_code_and_submit(email, dev_token, timeout=180, outlook_password=None):
+    # Outlook 模式：通过易久 API 获取验证码
+    if outlook_password:
+        from email_register import get_oai_code_from_outlook_api
+        code = get_oai_code_from_outlook_api(email, outlook_password, timeout=timeout)
+        if not code:
+            raise Exception("获取 Outlook 验证码失败")
+    else:
+        # 原有 mail.tm / 自建邮箱验证码轮询
+        code = get_oai_code(dev_token, email)
+        if not code:
+            raise Exception("获取验证码失败")
 
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
             filled = page.run_js(
                 """
-const code = String(arguments[0] || '').trim();
+const code = String(arguments[0] || '').trim().replace(/-/g, '');  // Strip dashes for OTP input
 
 function isVisible(node) {
     if (!node) {
@@ -1204,6 +1224,46 @@ def append_sso_to_txt(sso_value, output_path=DEFAULT_SSO_FILE):
     print(f"[*] 已追加写入 sso 到文件: {output_path}")
 
 
+def append_account_to_web_pool(email, password, sso_value, run_id="direct"):
+    """直接命令模式也写入 WebUI 号池，避免账号密码只存在日志里。"""
+    data_dir = os.environ.get("DATA_DIR", "/data")
+    if not data_dir or not os.path.isdir(data_dir):
+        return
+
+    path = os.path.join(data_dir, "accounts.json")
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                accounts = json.load(f)
+            if not isinstance(accounts, list):
+                accounts = []
+        else:
+            accounts = []
+
+        normalized_sso = str(sso_value or "").strip()
+        for item in accounts:
+            if not isinstance(item, dict):
+                continue
+            if item.get("email") == email or item.get("sso") == normalized_sso:
+                return
+
+        accounts.append({
+            "id": str(uuid.uuid4()),
+            "runId": run_id,
+            "email": email,
+            "password": password,
+            "sso": normalized_sso,
+            "createdAt": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        })
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+        print(f"[*] 已写入 grok-reg-tool 号池: {email}")
+    except Exception as e:
+        print(f"[Warn] 写入 grok-reg-tool 号池失败: {e}")
+
+
 def push_sso_to_api(new_tokens: list):
     # 推送 SSO token 到 grok2api 管理接口（chenyme/grok2api v2 协议）。
     # POST <endpoint>/admin/api/tokens/add  body {"pool": ..., "tokens": [...]}
@@ -1244,6 +1304,7 @@ def push_sso_to_api(new_tokens: list):
             url,
             json={"pool": pool, "tokens": tokens_to_push},
             headers=headers,
+            proxies={"http": "", "https": ""},
             timeout=60,
             verify=False,
         )
@@ -1258,11 +1319,15 @@ def push_sso_to_api(new_tokens: list):
         print(f"[Warn] 推送 API 失败: {e}")
 
 
-def run_single_registration(output_path=DEFAULT_SSO_FILE, extract_numbers=False):
+def run_single_registration(output_path=DEFAULT_SSO_FILE, extract_numbers=False,
+                            outlook_email=None, outlook_password=None):
     # 单轮流程：打开注册页 -> 完成注册 -> 获取 sso -> 写 txt。
     open_signup_page()
-    email, dev_token = fill_email_and_submit()
-    fill_code_and_submit(email, dev_token)
+    email, dev_token = fill_email_and_submit(
+        existing_email=outlook_email,
+        existing_password=outlook_password,
+    )
+    fill_code_and_submit(email, dev_token, outlook_password=outlook_password)
     profile = fill_profile_and_submit()
     # 注册完成后等浏览器跑完 SSO 重定向链落到 grok.com 并登录——grok.com 域的
     # 会话 cookie（含 cf_clearance / sso / sso-rw）此时才会真正写下来。
@@ -1270,6 +1335,7 @@ def run_single_registration(output_path=DEFAULT_SSO_FILE, extract_numbers=False)
         print("[Warn] 未能落到 grok.com 登录态，sso 质量可能受影响")
     sso_value = wait_for_sso_cookie()
     append_sso_to_txt(sso_value, output_path)
+    append_account_to_web_pool(email, profile.get("password", ""), sso_value)
 
     if extract_numbers:
         extract_visible_numbers()
@@ -1308,6 +1374,36 @@ def load_run_count() -> int:
     return 10
 
 
+def read_outlook_pool(pool_path: str) -> list[tuple[str, str]]:
+    """从 Outlook 池文件读取 email----password 列表"""
+    accounts = []
+    if not os.path.isfile(pool_path):
+        print(f"[Warn] Outlook 池文件不存在: {pool_path}")
+        return accounts
+    with open(pool_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("----")
+            if len(parts) >= 2:
+                accounts.append((parts[0].strip(), parts[1].strip()))
+    print(f"[*] 加载 Outlook 池: {len(accounts)} 个账号")
+    return accounts
+
+
+def get_config_str(key: str, default: str = "") -> str:
+    """从 config.json 读取字符串配置"""
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    try:
+        import json
+        with open(config_path, "r", encoding="utf-8") as f:
+            conf = json.load(f)
+        return str(conf.get(key, default))
+    except Exception:
+        return default
+
+
 def main():
     global run_logger
     run_logger = setup_run_logger()
@@ -1318,20 +1414,39 @@ def main():
     parser.add_argument("--count", type=int, default=config_count, help=f"执行轮数，0 表示无限循环（默认 {config_count}）")
     parser.add_argument("--output", default=DEFAULT_SSO_FILE, help="sso 输出 txt 路径")
     parser.add_argument("--extract-numbers", action="store_true", help="注册完成后额外提取页面数字文本")
+    parser.add_argument("--email-source", default="", choices=["", "outlook", "mailtm", "custom"],
+                        help="邮箱来源：outlook/mailtm/custom（默认从 config.json 读取）")
+    parser.add_argument("--outlook-pool", default="", help="Outlook 账号池文件路径")
     args = parser.parse_args()
+
+    # 确定邮箱来源
+    email_source = args.email_source or get_config_str("email_source", "mailtm")
+    outlook_pool_path = args.outlook_pool or get_config_str("outlook_pool_path", "/data/sso/outlook_pool.txt")
+
+    # 加载 Outlook 账号池
+    outlook_accounts = []
+    if email_source == "outlook":
+        outlook_accounts = read_outlook_pool(outlook_pool_path)
+        if not outlook_accounts:
+            print("[!] Outlook 模式但账号池为空，退出")
+            return 1
 
     total = args.count if args.count > 0 else '∞'
     print(f"")
     print(f"══════════════════════════════════════")
     print(f"  Grok 注册机启动")
+    print(f"  邮箱来源: {email_source}")
     print(f"  计划轮数: {total}")
     print(f"  SSO 输出: {args.output}")
+    if email_source == "outlook":
+        print(f"  Outlook 池: {len(outlook_accounts)} 个账号")
     print(f"══════════════════════════════════════")
 
     current_round = 0
     success_count = 0
     fail_count = 0
     collected_sso: list = []
+    pool_index = 0
     try:
         start_browser()
         while True:
@@ -1342,9 +1457,26 @@ def main():
             print(f"")
             print(f"─── 第 {current_round}/{total} 轮 ────────────────────────")
 
+            # Outlook 模式：从池中取账号
+            outlook_email = None
+            outlook_password = None
+            if email_source == "outlook":
+                if pool_index >= len(outlook_accounts):
+                    print("[!] Outlook 账号池已耗尽")
+                    break
+                outlook_email, outlook_password = outlook_accounts[pool_index]
+                pool_index += 1
+                print(f"[*] 使用 Outlook 账号: {outlook_email}")
+
             try:
-                result = run_single_registration(args.output, extract_numbers=args.extract_numbers)
+                result = run_single_registration(
+                    args.output,
+                    extract_numbers=args.extract_numbers,
+                    outlook_email=outlook_email,
+                    outlook_password=outlook_password,
+                )
                 collected_sso.append(result["sso"])
+                push_sso_to_api([result["sso"]])
                 success_count += 1
                 print(f"✔ 第 {current_round} 轮成功 | {result['email']}")
             except KeyboardInterrupt:
@@ -1358,7 +1490,10 @@ def main():
                 restart_browser()
 
             if args.count == 0 or current_round < args.count:
-                time.sleep(0.5)
+                delay = float(os.environ.get("DELAY_SECS", 45))
+                if delay > 0:
+                    print(f"[*] 等待 {delay:.0f}s 避免限流...")
+                    time.sleep(delay)
 
     finally:
         stop_browser()
